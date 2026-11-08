@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>FNO Relativistic MHD Plasma Engine — Tokamak Diagnostic Suite</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace; }
+    body { background: #010205; color: #e2e8f0; overflow: hidden; user-select: none; }
+    #canvas-container { position: fixed; inset: 0; z-index: 1; background: radial-gradient(circle at 50% 48%, #070b16 0%, #010204 80%); }
+    
+    .hud-panel {
+      position: fixed; z-index: 10; background: rgba(5, 8, 16, 0.86);
+      border: 1px solid rgba(56, 189, 248, 0.22); border-radius: 8px;
+      backdrop-filter: blur(18px); padding: 15px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    }
+    .left-hud { top: 16px; left: 16px; width: 318px; }
+    .right-hud { top: 16px; right: 16px; width: 325px; }
+    .bottom-hud { bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 26px; padding: 10px 24px; white-space: nowrap; }
+
+    .title { font-size: 11.5px; font-weight: 800; color: #38bdf8; letter-spacing: 1.4px; text-transform: uppercase; margin-bottom: 2px; }
+    .subtitle { font-size: 9px; color: #64748b; margin-bottom: 11px; border-bottom: 1px solid rgba(255,255,255,0.07); padding-bottom: 6px; }
+    
+    .control-group { margin-bottom: 9px; }
+    .control-label { display: flex; justify-content: space-between; font-size: 10px; color: #cbd5e1; margin-bottom: 3px; }
+    .control-val { color: #38bdf8; font-weight: 700; }
+    input[type=range] {
+      width: 100%; accent-color: #38bdf8; background: #0f172a; height: 4px; border-radius: 4px; cursor: pointer;
+    }
+
+    .btn-row { display: flex; gap: 5px; margin-top: 7px; }
+    button {
+      flex: 1; padding: 6px 5px; font-size: 9.5px; font-weight: 700; color: #020409;
+      background: #38bdf8; border: none; border-radius: 4px; cursor: pointer; transition: 0.15s; letter-spacing: 0.4px;
+    }
+    button:hover { background: #7dd3fc; box-shadow: 0 0 10px rgba(56, 189, 248, 0.45); }
+    button.secondary { background: rgba(15, 23, 42, 0.85); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.22); }
+    button.secondary.active { background: rgba(56, 189, 248, 0.16); border-color: #38bdf8; color: #38bdf8; box-shadow: inset 0 0 8px rgba(56, 189, 248, 0.2); }
+
+    .metric-box { margin-bottom: 8px; padding: 7px 10px; background: rgba(8, 13, 26, 0.9); border-left: 3px solid #38bdf8; border-radius: 4px; }
+    .metric-label { font-size: 8.5px; color: #64748b; text-transform: uppercase; letter-spacing: 0.6px; }
+    .metric-value { font-size: 15px; font-weight: 800; color: #f8fafc; margin-top: 1px; }
+    .metric-sub { font-size: 9px; color: #10b981; margin-top: 1px; }
+
+    .diag-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+    .diag-card { background: #040710; border: 1px solid rgba(56, 189, 248, 0.18); border-radius: 4px; padding: 5px; }
+    .diag-title { font-size: 8px; color: #94a3b8; text-transform: uppercase; margin-bottom: 3px; display: flex; justify-content: space-between; }
+    canvas.mini-canvas { width: 100%; height: 85px; display: block; border-radius: 2px; }
+
+    .stat-pill { text-align: center; }
+    .stat-pill .lbl { font-size: 8.5px; color: #64748b; text-transform: uppercase; letter-spacing: 0.6px; }
+    .stat-pill .val { font-size: 11.5px; font-weight: 700; color: #e2e8f0; margin-top: 2px; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <!-- Left Control HUD -->
+  <div class="hud-panel left-hud">
+    <div class="title">FNO Relativistic MHD Engine</div>
+    <div class="subtitle">Multi-Shell Tokamak & Spectral Operator</div>
+
+    <div class="control-group">
+      <div class="control-label"><span>DIAGNOSTIC TOPOLOGY</span></div>
+      <div class="btn-row">
+        <button id="btn-torus" class="secondary active">TOKAMAK TORUS</button>
+        <button id="btn-cutaway" class="secondary">SECTOR CUTAWAY</button>
+        <button id="btn-surface" class="secondary">2.5D SHEET</button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <div class="control-label"><span>TOROIDAL FIELD (B₀)</span><span id="val-b0" class="control-val">1.30 T</span></div>
+      <input type="range" id="slider-b0" min="0.4" max="2.5" step="0.1" value="1.3">
+    </div>
+
+    <div class="control-group">
+      <div class="control-label"><span>ALFVÉN VELOCITY (V₀)</span><span id="val-v0" class="control-val">1.10 c</span></div>
+      <input type="range" id="slider-v0" min="0.4" max="2.5" step="0.1" value="1.1">
+    </div>
+
+    <div class="control-group">
+      <div class="control-label"><span>TIME HORIZON (t)</span><span id="val-steps" class="control-val">120 steps</span></div>
+      <input type="range" id="slider-steps" min="20" max="260" step="10" value="120">
+    </div>
+
+    <div class="control-group">
+      <div class="control-label"><span>GYRO-FILAMENT GAIN</span><span id="val-amp" class="control-val">1.00</span></div>
+      <input type="range" id="slider-amp" min="0.2" max="2.2" step="0.05" value="1.0">
+    </div>
+
+    <div class="control-group">
+      <div class="control-label"><span>OPTICAL DEPTH (OPACITY)</span><span id="val-exposure" class="control-val">0.62</span></div>
+      <input type="range" id="slider-exposure" min="0.15" max="1.25" step="0.05" value="0.62">
+    </div>
+
+    <div class="control-group">
+      <div class="control-label"><span>SYNCHROTRON BLOOM</span><span id="val-bloom" class="control-val">0.28</span></div>
+      <input type="range" id="slider-bloom" min="0.0" max="0.9" step="0.02" value="0.28">
+    </div>
+
+    <div class="btn-row">
+      <button id="btn-infer">RUN FNO</button>
+      <button id="btn-coils" class="secondary active">CRYO COILS</button>
+      <button id="btn-lines" class="secondary active">B-TUBES</button>
+      <button id="btn-ions" class="secondary active">IONS</button>
+    </div>
+  </div>
+
+  <!-- Right Telemetry Panel -->
+  <div class="hud-panel right-hud">
+    <div class="title">REAL-TIME PHYSICS TELEMETRY</div>
+    <div class="subtitle">Helmholtz-Hodge Solenoidal Verification</div>
+
+    <div class="metric-box">
+      <div class="metric-label">Operator Speedup vs Spectral Solver</div>
+      <div class="metric-value" id="m-speedup">462.4x</div>
+      <div class="metric-sub" id="m-latency">FNO: 0.32 ms | Solver: 148.0 ms</div>
+    </div>
+
+    <div class="metric-box" style="border-left-color: #10b981;">
+      <div class="metric-label">Solenoidal Constraint ||∇ · B||_L2</div>
+      <div class="metric-value" id="m-divb">3.12e-15</div>
+      <div class="metric-sub">EXACT MACHINE PRECISION (∇ · B = 0)</div>
+    </div>
+
+    <div class="metric-box" style="border-left-color: #f43f5e;">
+      <div class="metric-label">Zero-Shot Relative L2 Error</div>
+      <div class="metric-value" id="m-err">9.12e-3</div>
+      <div class="metric-sub" id="m-peak">Peak Magnetic Energy: 1.6240</div>
+    </div>
+
+    <div class="diag-grid">
+      <div class="diag-card">
+        <div class="diag-title"><span>k-SPACE |F(B)|</span><span style="color:#38bdf8">FFT2</span></div>
+        <canvas id="kspace-canvas" class="mini-canvas" width="135" height="85"></canvas>
+      </div>
+      <div class="diag-card">
+        <div class="diag-title"><span>POLOIDAL Ψ(R,Z)</span><span style="color:#f43f5e">EFIT</span></div>
+        <canvas id="poloidal-canvas" class="mini-canvas" width="135" height="85"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Bar -->
+  <div class="hud-panel bottom-hud">
+    <div class="stat-pill"><div class="lbl">RADIATIVE MODEL</div><div class="val">Optically Thin Core + Dα Separatrix</div></div>
+    <div class="stat-pill"><div class="lbl">FLUX SURFACES</div><div class="val">3 Nested ψ-Shells + X-Point Divertor</div></div>
+    <div class="stat-pill"><div class="lbl">MAGNETIC CAGE</div><div class="val">18 D-Shaped TF Coils + 6 PF Rings</div></div>
+    <div class="stat-pill"><div class="lbl">CAMERA</div><div class="val">Left-Drag Orbit | Scroll Zoom</div></div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+
+    const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 200);
+    camera.position.set(0, -11.5, 5.2);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.82;
+    container.appendChild(renderer.domElement);
+
+    // Controlled HDR Bloom: Only high-energy filaments and divertor strike-points glow
+    const composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      0.28, // subtle bloom
+      0.38, // tight filament radius
+      0.68  // high threshold prevents whiteout
+    );
+    composer.addPass(bloomPass);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.04;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.35;
+
+    // Industrial Lighting for Metallic Tokamak Structure
+    const dirLight1 = new THREE.DirectionalLight(0x38bdf8, 1.8);
+    dirLight1.position.set(12, -10, 14);
+    scene.add(dirLight1);
+
+    const dirLight2 = new THREE.DirectionalLight(0xf43f5e, 1.4);
+    dirLight2.position.set(-12, 10, -8);
+    scene.add(dirLight2);
+
+    scene.add(new THREE.AmbientLight(0x1e293b, 1.5));
+
+    // Precision Reactor Pit Floor
+    const polarGrid = new THREE.PolarGridHelper(11, 18, 7, 72, 0x0284c7, 0x0f172a);
+    polarGrid.rotation.x = Math.PI / 2;
+    polarGrid.position.z = -3.15;
+    polarGrid.material.transparent = true;
+    polarGrid.material.opacity = 0.28;
+    scene.add(polarGrid);
+
+    const N = 64;
+    const majorR = 3.6;
+    let mode = 'torus'; // 'torus', 'cutaway', 'surface'
+    let ampScale = 1.0;
+    let luminanceGain = 0.62;
+    let latestData = null;
+
+    // =========================================================================
+    // 1. REALISTIC 3D TOKAMAK HARDWARE: D-SHAPED TF COILS, PF RINGS & DIVERTOR
+    // =========================================================================
+    const reactorGroup = new THREE.Group();
+
+    // Metallic Cryostat Material for 18 D-Shaped Toroidal Field (TF) Coils
+    const tfMetalMat = new THREE.MeshStandardMaterial({
+      color: 0x1e293b,
+      metalness: 0.88,
+      roughness: 0.25,
+      transparent: true,
+      opacity: 0.55
+    });
+    const tfEdgeMat = new THREE.LineBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.32
+    });
+
+    // Generate authentic Princeton D-Shaped Tokamak Coil Curve
+    function createDCoilGeometry() {
+      const pts = [];
+      const steps = 64;
+      const rMin = 1.68;
+      const kappa = 1.38;
+      const delta = 0.42;
+      for (let i = 0; i <= steps; i++) {
+        const v = (i / steps) * Math.PI * 2;
+        const r = rMin * Math.cos(v + delta * Math.sin(v));
+        const z = rMin * kappa * Math.sin(v);
+        pts.push(new THREE.Vector3(r, z, 0));
+      }
+      const curve = new THREE.CatmullRomCurve3(pts, true);
+      return new THREE.TubeGeometry(curve, 64, 0.055, 8, true);
+    }
+
+    const dCoilGeom = createDCoilGeometry();
+    const dCoilEdges = new THREE.EdgesGeometry(dCoilGeom);
+    const tfCoilsList = [];
+    const numCoils = 18;
+
+    for (let c = 0; c < numCoils; c++) {
+      const angle = (c / numCoils) * Math.PI * 2;
+      const coilHolder = new THREE.Group();
+      const mesh = new THREE.Mesh(dCoilGeom, tfMetalMat);
+      const wire = new THREE.LineSegments(dCoilEdges, tfEdgeMat);
+      coilHolder.add(mesh);
+      coilHolder.add(wire);
+
+      coilHolder.position.set(majorR * Math.cos(angle), majorR * Math.sin(angle), 0);
+      coilHolder.rotation.x = Math.PI / 2;
+      coilHolder.rotation.y = angle;
+      reactorGroup.add(coilHolder);
+      tfCoilsList.push({ holder: coilHolder, angle });
+    }
+
+    // Central Solenoid Column (Inconel/Superconducting core stack)
+    const solenoidGeom = new THREE.CylinderGeometry(1.72, 1.72, 4.4, 48, 24, true);
+    const solenoidMat = new THREE.MeshStandardMaterial({
+      color: 0x0f172a,
+      metalness: 0.9,
+      roughness: 0.3,
+      side: THREE.DoubleSide,
+      wireframe: false,
+      transparent: true,
+      opacity: 0.75
+    });
+    const solenoidMesh = new THREE.Mesh(solenoidGeom, solenoidMat);
+    solenoidMesh.rotation.x = Math.PI / 2;
+    reactorGroup.add(solenoidMesh);
+
+    const solenoidWire = new THREE.LineSegments(
+      new THREE.WireframeGeometry(new THREE.CylinderGeometry(1.73, 1.73, 4.4, 36, 12, true)),
+      new THREE.LineBasicMaterial({ color: 0x0284c7, transparent: true, opacity: 0.25 })
+    );
+    solenoidWire.rotation.x = Math.PI / 2;
+    reactorGroup.add(solenoidWire);
+
+    // 6 Outer Poloidal Field (PF) Superconducting Rings
+    const pfSpecs = [
+      { r: 5.55, z: 1.85 }, { r: 5.75, z: 0.65 }, { r: 5.75, z: -0.65 },
+      { r: 5.55, z: -1.85 }, { r: 3.35, z: 2.38 }, { r: 3.35, z: -2.38 }
+    ];
+    pfSpecs.forEach(spec => {
+      const pfGeom = new THREE.TorusGeometry(spec.r, 0.06, 12, 96);
+      const pfMesh = new THREE.Mesh(pfGeom, tfMetalMat);
+      pfMesh.position.z = spec.z;
+      reactorGroup.add(pfMesh);
+    });
+
+    // Glowing Tungsten Lower X-Point Divertor Strike Ring (Where plasma exhausts at bottom)
+    const divertorGeom = new THREE.TorusGeometry(majorR - 0.32, 0.08, 16, 120);
+    const divertorMat = new THREE.MeshBasicMaterial({
+      color: 0xff2a6d,
+      transparent: true,
+      opacity: 0.55,
+      blending: THREE.AdditiveBlending
+    });
+    const divertorRing = new THREE.Mesh(divertorGeom, divertorMat);
+    divertorRing.position.z = -1.48;
+    reactorGroup.add(divertorRing);
+
+    scene.add(reactorGroup);
+
+    // =========================================================================
+    // 2. THREE NESTED VOLUMETRIC PLASMA SHELLS (Optically Thin Core + Dα Edge)
+    // =========================================================================
+    // In real tokamaks, nested flux surfaces psi = 0.38 (core), 0.72 (mid), 1.0 (LCFS separatrix)
+    const shellConfigs = [
+      { psi: 0.42, opacityScale: 0.42, tempBias: 0.30 }, // Hot core bremsstrahlung
+      { psi: 0.74, opacityScale: 0.55, tempBias: 0.12 }, // Intermediate confinement zone
+      { psi: 1.00, opacityScale: 0.85, tempBias: 0.00 }  // Outer separatrix & D-alpha edge
+    ];
+
+    const plasmaVertexShader = `
+      attribute float aEnergy;
+      attribute float aCurrent;
+      varying float vEnergy;
+      varying float vCurrent;
+      varying vec3 vNormal;
+      varying vec3 vViewPosition;
+      varying vec3 vWorldPos;
+      varying vec2 vUv;
+
+      void main() {
+        vEnergy = aEnergy;
+        vCurrent = aCurrent;
+        vUv = uv;
+        vec4 worldPos = modelMatrix * vec4(position, 1.0);
+        vWorldPos = worldPos.xyz;
+        vec4 mvPosition = viewMatrix * worldPos;
+        vNormal = normalize(normalMatrix * normal);
+        vViewPosition = -mvPosition.xyz;
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `;
+
+    const plasmaFragmentShader = `
+      varying float vEnergy;
+      varying float vCurrent;
+      varying vec3 vNormal;
+      varying vec3 vViewPosition;
+      varying vec3 vWorldPos;
+      varying vec2 vUv;
+
+      uniform float uTime;
+      uniform float uLuminance;
+      uniform float uPsi;
+      uniform float uShellOpacity;
+      uniform float uCutaway;
+
+      // 3D Gyrokinetic Micro-Turbulence Filament Noise
+      float hash(vec3 p) {
+        p = fract(p * 0.3183099 + 0.1);
+        p *= 17.0;
+        return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+      }
+
+      float noise3D(vec3 x) {
+        vec3 i = floor(x);
+        vec3 f = fract(x);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(
+          mix(mix(hash(i + vec3(0,0,0)), hash(i + vec3(1,0,0)), f.x),
+              mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+          mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
+              mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
+      }
+
+      void main() {
+        // Sector cutaway diagnostic slice (cuts open front-right quadrant when enabled)
+        float angle = atan(vWorldPos.y, vWorldPos.x);
+        if (uCutaway > 0.5 && angle > -1.2 && angle < 0.65) {
+          discard;
+        }
+
+        vec3 normal = normalize(vNormal);
+        vec3 viewDir = normalize(vViewPosition);
+        float ndotv = abs(dot(normal, viewDir));
+
+        // Physical Tokamak Optical Depth:
+        // Looking straight through the center is optically thin (transparent);
+        // Grazing the tangential limb (Fresnel) integrates along a long chord of plasma.
+        float limbChord = pow(1.0 - ndotv, 2.35);
+
+        // Helical field-aligned filamentary striations (q-profile pitch angle)
+        float helicalPhase = vUv.x * 28.0 + vUv.y * 9.0 - uTime * 2.6;
+        float filament = 0.72 + 0.28 * sin(helicalPhase);
+        float microTurb = noise3D(vWorldPos * 2.2 + vec3(0.0, 0.0, uTime * 0.8));
+
+        float eNorm = clamp(vEnergy * (0.85 + 0.3 * microTurb), 0.0, 1.0);
+        float jRidge = pow(clamp(vCurrent, 0.0, 1.0), 2.1);
+
+        // Authentic Tokamak Emission Spectrum:
+        // 1. Separatrix D-alpha Balmer (656nm crimson-magenta) at edge & lower divertor
+        vec3 dAlphaCrimson = vec3(0.95, 0.08, 0.42);
+        // 2. Impurity / He-II / C-III intermediate transition (deep violet-indigo)
+        vec3 transitionViolet = vec3(0.32, 0.06, 0.78);
+        // 3. Superheated Bremsstrahlung & ECRH Core (electric cyan-blue to soft amber)
+        vec3 coreCyan = vec3(0.05, 0.78, 1.00);
+        vec3 shockAmber = vec3(1.00, 0.62, 0.12);
+
+        // Blend color based on flux shell (uPsi) and local MHD shock energy
+        vec3 shellCol = mix(coreCyan, transitionViolet, smoothstep(0.35, 0.85, uPsi));
+        shellCol = mix(shellCol, dAlphaCrimson, smoothstep(0.65, 1.0, uPsi) * limbChord);
+        shellCol = mix(shellCol, shockAmber, smoothstep(0.55, 0.98, eNorm) * 0.75);
+
+        // Lower X-Point Divertor Strike Zone amplification (z < -0.95)
+        float divertorZone = smoothstep(-0.85, -1.45, vWorldPos.z);
+        shellCol += vec3(1.0, 0.15, 0.35) * divertorZone * 0.95;
+
+        // Current sheet Alfvén ridges
+        shellCol += vec3(0.1, 0.92, 1.0) * jRidge * 0.65;
+
+        vec3 finalCol = shellCol * filament * (0.45 + 0.95 * limbChord + 0.55 * eNorm) * uLuminance;
+
+        // Core is transparent unless viewed at grazing angle or high Jz shock
+        float alpha = (0.06 + 0.58 * limbChord + 0.28 * pow(eNorm, 1.5) + 0.22 * divertorZone) * uShellOpacity * uLuminance;
+        alpha = clamp(alpha, 0.02, 0.78);
+
+        gl_FragColor = vec4(finalCol, alpha);
+      }
+    `;
+
+    const plasmaGroup = new THREE.Group();
+    const shells = shellConfigs.map(cfg => {
+      const geom = new THREE.PlaneGeometry(8, 8, N - 1, N - 1);
+      const count = geom.attributes.position.count;
+      geom.setAttribute('aEnergy', new THREE.BufferAttribute(new Float32Array(count), 1));
+      geom.setAttribute('aCurrent', new THREE.BufferAttribute(new Float32Array(count), 1));
+
+      const mat = new THREE.ShaderMaterial({
+        uniforms: {
+          uTime: { value: 0.0 },
+          uLuminance: { value: luminanceGain },
+          uPsi: { value: cfg.psi },
+          uShellOpacity: { value: cfg.opacityScale },
+          uCutaway: { value: 0.0 }
+        },
+        vertexShader: plasmaVertexShader,
+        fragmentShader: plasmaFragmentShader,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.NormalBlending,
+        side: THREE.DoubleSide
+      });
+
+      const mesh = new THREE.Mesh(geom, mat);
+      plasmaGroup.add(mesh);
+      return { mesh, geom, mat, cfg };
+    });
+    scene.add(plasmaGroup);
+
+    // =========================================================================
+    // 3. 3D VOLUMETRIC HELICAL MAGNETIC FLUX TUBES (Variable-Radius 3D Ribbons)
+    // =========================================================================
+    const fieldLinesGroup = new THREE.Group();
+    const numLines = 32;
+    const ptsPerLine = 160;
+    const lineMeshes = [];
+
+    for (let l = 0; l < numLines; l++) {
+      const lGeom = new THREE.BufferGeometry();
+      const positions = new Float32Array(ptsPerLine * 3);
+      const colors = new Float32Array(ptsPerLine * 3);
+      lGeom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      lGeom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+      const lMat = new THREE.LineBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.65,
+        blending: THREE.AdditiveBlending
+      });
+      const line = new THREE.Line(lGeom, lMat);
+      fieldLinesGroup.add(line);
+      lineMeshes.push({
+        line,
+        phase: (l / numLines) * Math.PI * 2,
+        qFactor: 2.1 + (l % 4) * 0.42,
+        psiShell: 0.55 + (l % 3) * 0.22
+      });
+    }
+    scene.add(fieldLinesGroup);
+
+    // =========================================================================
+    // 4. 8,000 GUIDING-CENTER GYRO-IONS (Fine Sub-Millimeter Pinpoints)
+    // =========================================================================
+    function createPinpointIonTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 32;
+      canvas.height = 32;
+      const ctx = canvas.getContext('2d');
+      const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+      grad.addColorStop(0.0, 'rgba(255, 255, 255, 1.0)');
+      grad.addColorStop(0.22, 'rgba(56, 189, 248, 0.8)');
+      grad.addColorStop(0.55, 'rgba(244, 63, 94, 0.22)');
+      grad.addColorStop(1.0, 'rgba(0, 0, 0, 0.0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 32, 32);
+      return new THREE.CanvasTexture(canvas);
+    }
+
+    const particleCount = 8000;
+    const pGeom = new THREE.BufferGeometry();
+    const pPos = new Float32Array(particleCount * 3);
+    const pCol = new Float32Array(particleCount * 3);
+    const pUV = new Float32Array(particleCount * 3); // u, v, psi_radius
+
+    for (let i = 0; i < particleCount; i++) {
+      pUV[i * 3] = Math.random();
+      pUV[i * 3 + 1] = Math.random();
+      pUV[i * 3 + 2] = 0.25 + Math.random() * 0.78; // radial flux surface psi
+    }
+    pGeom.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+    pGeom.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+
+    const pMat = new THREE.PointsMaterial({
+      size: 0.085,
+      map: createPinpointIonTexture(),
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.68,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    const particleSystem = new THREE.Points(pGeom, pMat);
+    scene.add(particleSystem);
+
+    function sampleGrid(grid, uNorm, vNorm) {
+      const i = Math.min(N - 1, Math.max(0, Math.floor(uNorm * (N - 1))));
+      const j = Math.min(N - 1, Math.max(0, Math.floor(vNorm * (N - 1))));
+      return grid[i][j];
+    }
+
+    // D-Shaped Miller Equilibrium + Lower Single-Null X-Point Divertor Geometry
+    function tokamakCoords(u, v, psiRadius, normE, ripple) {
+      const kappa = 1.34;
+      const delta = 0.36;
+      const rMinor = psiRadius * (1.02 + normE * 0.26 * ampScale) + ripple;
+
+      // Add authentic lower X-point divertor pinch at v = -PI/2 (sin(v) near -1)
+      const xPointPinch = Math.pow(Math.max(0.0, -Math.sin(v)), 6.0) * 0.28 * psiRadius;
+      const rPol = majorR + rMinor * Math.cos(v + delta * Math.sin(v)) * (1.0 - 0.35 * xPointPinch);
+      const zPol = rMinor * kappa * Math.sin(v) - xPointPinch;
+
+      return [rPol * Math.cos(u), rPol * Math.sin(u), zPol];
+    }
+
+    // =========================================================================
+    // 5. DIAGNOSTIC HUD CANVASES: 2D k-SPACE FFT & POLOIDAL EFIT CROSS-SECTION
+    // =========================================================================
+    function drawDiagnostics(data) {
+      if (!data) return;
+
+      // 1. k-Space Spectrum
+      const kSpec = data.k_spectrum;
+      if (kSpec) {
+        const c1 = document.getElementById('kspace-canvas');
+        const ctx1 = c1.getContext('2d');
+        const rows = kSpec.length;
+        const cols = kSpec[0].length;
+        const cw = c1.width / cols;
+        const ch = c1.height / rows;
+        ctx1.clearRect(0, 0, c1.width, c1.height);
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const val = Math.pow(kSpec[r][c], 1.35);
+            const red = Math.floor(val * 245);
+            const grn = Math.floor(Math.pow(val, 1.8) * 200);
+            const blu = Math.floor(65 + val * 190);
+            ctx1.fillStyle = `rgb(${red},${grn},${blu})`;
+            ctx1.fillRect(c * cw, r * ch, Math.ceil(cw), Math.ceil(ch));
+          }
+        }
+      }
+
+      // 2. Poloidal Cross-Section Flux Contours Psi(R, Z)
+      const c2 = document.getElementById('poloidal-canvas');
+      const ctx2 = c2.getContext('2d');
+      ctx2.fillStyle = '#040710';
+      ctx2.fillRect(0, 0, c2.width, c2.height);
+
+      const cx = c2.width * 0.52;
+      const cy = c2.height * 0.48;
+      const fluxLevels = [0.22, 0.42, 0.62, 0.82, 1.0];
+      fluxLevels.forEach((psi, idx) => {
+        ctx2.beginPath();
+        for (let a = 0; a <= 64; a++) {
+          const v = (a / 64) * Math.PI * 2;
+          const pinch = Math.pow(Math.max(0, -Math.sin(v)), 6) * 8 * psi;
+          const rx = cx + psi * 26 * Math.cos(v + 0.36 * Math.sin(v));
+          const ry = cy - (psi * 33 * Math.sin(v) - pinch);
+          if (a === 0) ctx2.moveTo(rx, ry);
+          else ctx2.lineTo(rx, ry);
+        }
+        ctx2.strokeStyle = idx === 4 ? '#f43f5e' : `rgba(56, 189, 248, ${0.35 + idx * 0.15})`;
+        ctx2.lineWidth = idx === 4 ? 1.5 : 1.0;
+        ctx2.stroke();
+      });
+    }
+
+    function updatePlasmaManifold(timeSec = 0) {
+      if (!latestData) return;
+      const energy = latestData.mag_energy;
+      const jz = latestData.jz_current;
+      const maxE = latestData.peak_energy || 1.0;
+
+      let maxJ = 1e-5;
+      for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+          const val = Math.abs(jz[i][j]);
+          if (val > maxJ) maxJ = val;
+        }
+      }
+
+      // Update all 3 nested flux shells
+      shells.forEach(({ geom, mat, cfg }) => {
+        const pos = geom.attributes.position;
+        const eAttr = geom.attributes.aEnergy;
+        const jAttr = geom.attributes.aCurrent;
+
+        for (let i = 0; i < N; i++) {
+          for (let j = 0; j < N; j++) {
+            const idx = i * N + j;
+            const iWrap = i === N - 1 ? 0 : i;
+            const jWrap = j === N - 1 ? 0 : j;
+
+            const u = (i / (N - 1)) * Math.PI * 2;
+            const v = (j / (N - 1)) * Math.PI * 2;
+
+            const normE = Math.min(1.0, (energy[iWrap][jWrap] / maxE) + cfg.tempBias);
+            const normJ = Math.abs(jz[iWrap][jWrap]) / maxJ;
+            const ripple = Math.sin(u * 4.0 - timeSec * 2.4 + v * 2.0) * 0.025 * ampScale * cfg.psi;
+
+            if (mode !== 'surface') {
+              const [x, y, z] = tokamakCoords(u, v, cfg.psi, normE, ripple);
+              pos.setXYZ(idx, x, y, z);
+            } else {
+              const x = ((i / (N - 1)) - 0.5) * 9.5;
+              const y = ((j / (N - 1)) - 0.5) * 9.5;
+              const z = (normE * 1.65 * ampScale) - 1.2 + (cfg.psi * 0.45) + ripple;
+              pos.setXYZ(idx, x, y, z);
+            }
+
+            eAttr.setX(idx, normE);
+            jAttr.setX(idx, normJ);
+          }
+        }
+        pos.needsUpdate = true;
+        eAttr.needsUpdate = true;
+        jAttr.needsUpdate = true;
+        geom.computeVertexNormals();
+
+        mat.uniforms.uTime.value = timeSec;
+        mat.uniforms.uCutaway.value = mode === 'cutaway' ? 1.0 : 0.0;
+      });
+
+      // Toggle TF Coils in cutaway sector so inside of plasma is unobstructed
+      tfCoilsList.forEach(({ holder, angle }) => {
+        const normAngle = Math.atan2(Math.sin(angle), Math.cos(angle));
+        if (mode === 'cutaway' && normAngle > -1.2 && normAngle < 0.65) {
+          holder.visible = false;
+        } else {
+          holder.visible = true;
+        }
+      });
+
+      // Update 3D Helical Field Lines
+      lineMeshes.forEach((item, idx) => {
+        const lPos = item.line.geometry.attributes.position;
+        const lCol = item.line.geometry.attributes.color;
+        const isCyanGroup = idx % 2 === 0;
+
+        for (let p = 0; p < ptsPerLine; p++) {
+          const frac = p / (ptsPerLine - 1);
+          const u = frac * Math.PI * 2;
+          const v = (u * item.qFactor + item.phase + timeSec * 0.32) % (Math.PI * 2);
+
+          const uNorm = (u / (Math.PI * 2)) % 1.0;
+          const vNorm = ((v < 0 ? v + Math.PI * 2 : v) / (Math.PI * 2)) % 1.0;
+          const normE = sampleGrid(energy, uNorm, vNorm) / maxE;
+
+          if (mode !== 'surface') {
+            const [x, y, z] = tokamakCoords(u, v, item.psiShell, normE, 0.02);
+            lPos.setXYZ(p, x, y, z);
+          } else {
+            const x = (uNorm - 0.5) * 9.5;
+            const y = (vNorm - 0.5) * 9.5;
+            const z = (normE * 1.65 * ampScale) - 0.65;
+            lPos.setXYZ(p, x, y, z);
+          }
+
+          // Traveling Alfvén wave packet along each magnetic flux line
+          const wavePacket = Math.pow(0.5 + 0.5 * Math.sin(frac * 24.0 - timeSec * 5.0), 3.0);
+          const intensity = (0.25 + 0.75 * wavePacket) * luminanceGain;
+          if (isCyanGroup) {
+            lCol.setXYZ(p, 0.05 * intensity, 0.82 * intensity, 1.0 * intensity);
+          } else {
+            lCol.setXYZ(p, 1.0 * intensity, 0.18 * intensity, 0.52 * intensity);
+          }
+        }
+        lPos.needsUpdate = true;
+        lCol.needsUpdate = true;
+      });
+    }
+
+    function updateParticles() {
+      if (!latestData || !particleSystem.visible) return;
+      const pArr = pGeom.attributes.position;
+      const cArr = pGeom.attributes.color;
+      const bx = latestData.bx;
+      const by = latestData.by;
+      const energy = latestData.mag_energy;
+      const maxE = latestData.peak_energy || 1.0;
+
+      for (let i = 0; i < particleCount; i++) {
+        let u0 = pUV[i * 3];
+        let v0 = pUV[i * 3 + 1];
+        const psiRad = pUV[i * 3 + 2];
+
+        const gi = Math.floor(u0 * (N - 1));
+        const gj = Math.floor(v0 * (N - 1));
+
+        const speed = 0.0018;
+        u0 = (u0 + bx[gi][gj] * speed + 0.0012 + 1.0) % 1.0;
+        v0 = (v0 + by[gi][gj] * speed + 1.0) % 1.0;
+        pUV[i * 3] = u0;
+        pUV[i * 3 + 1] = v0;
+
+        const normE = Math.pow(energy[gi][gj] / maxE, 1.3);
+        const u = u0 * Math.PI * 2;
+        const v = v0 * Math.PI * 2;
+
+        if (mode !== 'surface') {
+          const [x, y, z] = tokamakCoords(u, v, psiRad, normE, 0.0);
+          pArr.setXYZ(i, x, y, z);
+        } else {
+          pArr.setXYZ(
+            i,
+            (u0 - 0.5) * 9.5,
+            (v0 - 0.5) * 9.5,
+            (normE * 1.65 * ampScale) - 1.1 + psiRad * 0.4
+          );
+        }
+
+        // Core ions glow cyan-white; edge separatrix ions glow D-alpha crimson-magenta
+        const isEdge = psiRad > 0.78;
+        const r = (isEdge ? 0.95 : 0.15 + 0.75 * normE) * luminanceGain;
+        const g = (isEdge ? 0.12 : 0.65 + 0.35 * normE) * luminanceGain;
+        const b = (isEdge ? 0.45 : 0.98) * luminanceGain;
+        cArr.setXYZ(i, r, g, b);
+      }
+      pArr.needsUpdate = true;
+      cArr.needsUpdate = true;
+    }
+
+    async function fetchFNOInference() {
+      const b0 = document.getElementById('slider-b0').value;
+      const v0 = document.getElementById('slider-v0').value;
+      const steps = document.getElementById('slider-steps').value;
+
+      const res = await fetch(`/api/v1/infer-mhd-3d?b0_flux=${b0}&v0_velocity=${v0}&steps=${steps}`);
+      latestData = await res.json();
+
+      document.getElementById('m-speedup').innerText = `${latestData.speedup_factor}x`;
+      document.getElementById('m-latency').innerText = `FNO: ${latestData.fno_latency_ms} ms | Solver: ${latestData.solver_latency_ms} ms`;
+      document.getElementById('m-divb').innerText = latestData.div_b_l2_norm.toExponential(2);
+      document.getElementById('m-err').innerText = latestData.relative_l2_error.toExponential(2);
+      document.getElementById('m-peak').innerText = `Peak Magnetic Energy: ${latestData.peak_energy}`;
+
+      drawDiagnostics(latestData);
+      updatePlasmaManifold(0);
+    }
+
+    // UI Controls
+    document.getElementById('slider-b0').addEventListener('input', e => {
+      document.getElementById('val-b0').innerText = `${parseFloat(e.target.value).toFixed(2)} T`;
+    });
+    document.getElementById('slider-b0').addEventListener('change', fetchFNOInference);
+
+    document.getElementById('slider-v0').addEventListener('input', e => {
+      document.getElementById('val-v0').innerText = `${parseFloat(e.target.value).toFixed(2)} c`;
+    });
+    document.getElementById('slider-v0').addEventListener('change', fetchFNOInference);
+
+    document.getElementById('slider-steps').addEventListener('input', e => {
+      document.getElementById('val-steps').innerText = `${e.target.value} steps`;
+    });
+    document.getElementById('slider-steps').addEventListener('change', fetchFNOInference);
+
+    document.getElementById('slider-amp').addEventListener('input', e => {
+      ampScale = parseFloat(e.target.value);
+      document.getElementById('val-amp').innerText = ampScale.toFixed(2);
+    });
+
+    document.getElementById('slider-exposure').addEventListener('input', e => {
+      luminanceGain = parseFloat(e.target.value);
+      shells.forEach(s => { s.mat.uniforms.uLuminance.value = luminanceGain; });
+      pMat.opacity = Math.min(0.85, luminanceGain * 0.9);
+      document.getElementById('val-exposure').innerText = luminanceGain.toFixed(2);
+    });
+
+    document.getElementById('slider-bloom').addEventListener('input', e => {
+      const val = parseFloat(e.target.value);
+      bloomPass.strength = val;
+      document.getElementById('val-bloom').innerText = val.toFixed(2);
+    });
+
+    document.getElementById('btn-infer').addEventListener('click', fetchFNOInference);
+
+    document.getElementById('btn-coils').addEventListener('click', e => {
+      reactorGroup.visible = !reactorGroup.visible;
+      e.target.classList.toggle('active', reactorGroup.visible);
+    });
+
+    document.getElementById('btn-lines').addEventListener('click', e => {
+      fieldLinesGroup.visible = !fieldLinesGroup.visible;
+      e.target.classList.toggle('active', fieldLinesGroup.visible);
+    });
+
+    document.getElementById('btn-ions').addEventListener('click', e => {
+      particleSystem.visible = !particleSystem.visible;
+      e.target.classList.toggle('active', particleSystem.visible);
+    });
+
+    function setTopologyMode(newMode) {
+      mode = newMode;
+      document.getElementById('btn-torus').classList.toggle('active', mode === 'torus');
+      document.getElementById('btn-cutaway').classList.toggle('active', mode === 'cutaway');
+      document.getElementById('btn-surface').classList.toggle('active', mode === 'surface');
+      reactorGroup.visible = mode !== 'surface';
+      document.getElementById('btn-coils').classList.toggle('active', reactorGroup.visible);
+    }
+
+    document.getElementById('btn-torus').addEventListener('click', () => setTopologyMode('torus'));
+    document.getElementById('btn-cutaway').addEventListener('click', () => setTopologyMode('cutaway'));
+    document.getElementById('btn-surface').addEventListener('click', () => setTopologyMode('surface'));
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      composer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    fetchFNOInference();
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const t = clock.getElapsedTime();
+      updatePlasmaManifold(t);
+      updateParticles();
+      controls.update();
+      composer.render();
+    }
+    animate();
+  </script>
+</body>
+</html>
