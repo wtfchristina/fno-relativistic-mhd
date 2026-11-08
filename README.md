@@ -1,5 +1,7 @@
 # Fourier Neural Operator (FNO): 3D Relativistic MHD & Tokamak Plasma Engine
 
+![MHD FNO Tokamak Hero](hero.png)
+
 A 2D/3D Fourier Neural Operator (FNO) and pseudo-spectral solver for Relativistic Magnetohydrodynamics (MHD) featuring a Helmholtz-Hodge spectral projection layer that enforces solenoidal magnetic field constraints ($\nabla \cdot \mathbf{B} = 0$) to machine precision ($\sim 10^{-15}$).
 
 Includes an interactive **3D WebGL / Three.js Tokamak Confinement & Diagnostic Suite** modeling optically thin core bremsstrahlung, nested $\psi$-flux surfaces, $D_\alpha$ separatrix emission, and lower X-point divertor geometry.
@@ -22,7 +24,7 @@ Includes an interactive **3D WebGL / Three.js Tokamak Confinement & Diagnostic S
 
 ## Quickstart
 
-    git clone [https://github.com/wtfchristina/fno-relativistic-mhd.git](https://github.com/wtfchristina/fno-relativistic-mhd.git)
+    git clone https://github.com/wtfchristina/fno-relativistic-mhd.git
     cd fno-relativistic-mhd
     python3 -m venv .venv
     source .venv/bin/activate
@@ -34,7 +36,7 @@ Includes an interactive **3D WebGL / Three.js Tokamak Confinement & Diagnostic S
     # Launch 3D Interactive Tokamak Telemetry Server
     uvicorn api.server:app --reload --port 8001
 
-Open [http://127.0.0.1:8001](http://127.0.0.1:8001) in your browser to interact with the 3D Tokamak plasma engine.
+Open http://127.0.0.1:8001 in your browser to interact with the 3D Tokamak plasma engine.
 
 ---
 
